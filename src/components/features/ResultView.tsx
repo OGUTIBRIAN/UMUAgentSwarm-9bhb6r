@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   CheckCircle, Copy, RotateCcw, Building2, Tag, Cpu,
-  Mail, Clock, ChevronDown, ChevronUp, Percent,
+  Mail, Clock, ChevronDown, ChevronUp, Percent, Send,
 } from "lucide-react";
 import { CAMPUSES } from "@/constants/umuData";
 import { formatDateTime } from "@/lib/utils";
@@ -11,6 +11,7 @@ import { toast } from "sonner";
 interface ResultViewProps {
   result: RoutingResult;
   onReset: () => void;
+  onMarkSent?: (emailId: string) => void;
 }
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -22,17 +23,27 @@ const CATEGORY_COLORS: Record<string, string> = {
   engineering: "#E67E22",
 };
 
-const ResultView = ({ result, onReset }: ResultViewProps) => {
+const ResultView = ({ result, onReset, onMarkSent }: ResultViewProps) => {
   const [showOriginal, setShowOriginal] = useState(false);
   const [copied, setCopied] = useState(false);
   const campus = CAMPUSES.find((c) => c.id === result.campusId)!;
   const catColor = CATEGORY_COLORS[result.category] || "#F5A623";
+  const isSent = result.status === "sent";
 
   const copyReply = () => {
     navigator.clipboard.writeText(result.draftReply);
     setCopied(true);
     toast.success("Draft reply copied to clipboard");
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleSendReply = () => {
+    const mailtoUrl = `mailto:${encodeURIComponent(result.from)}?subject=${encodeURIComponent(`Re: ${result.subject}`)}&body=${encodeURIComponent(result.draftReply)}`;
+    window.open(mailtoUrl, "_self");
+    if (!isSent && onMarkSent) {
+      onMarkSent(result.emailId);
+      toast.success("Reply sent — email client opened");
+    }
   };
 
   return (
@@ -107,13 +118,26 @@ const ResultView = ({ result, onReset }: ResultViewProps) => {
               Draft Reply — {result.agentName}
             </span>
           </div>
-          <button
-            onClick={copyReply}
-            className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--primary)/0.15)] border border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--primary))] transition-colors"
-          >
-            {copied ? <CheckCircle className="w-3 h-3 text-[hsl(142,72%,45%)]" /> : <Copy className="w-3 h-3" />}
-            {copied ? "Copied" : "Copy"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={copyReply}
+              className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--primary)/0.15)] border border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--primary))] transition-colors"
+            >
+              {copied ? <CheckCircle className="w-3 h-3 text-[hsl(142,72%,45%)]" /> : <Copy className="w-3 h-3" />}
+              {copied ? "Copied" : "Copy"}
+            </button>
+            <button
+              onClick={handleSendReply}
+              className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md border font-semibold transition-colors ${
+                isSent
+                  ? "bg-[hsl(142,72%,45%,0.15)] border-[hsl(142,72%,45%,0.4)] text-[hsl(142,72%,45%)] cursor-default"
+                  : "bg-[hsl(var(--primary)/0.15)] border-[hsl(var(--primary)/0.4)] text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/0.25)]"
+              }`}
+            >
+              {isSent ? <CheckCircle className="w-3 h-3" /> : <Send className="w-3 h-3" />}
+              {isSent ? "Sent" : "Send Reply"}
+            </button>
+          </div>
         </div>
 
         <div className="p-4">

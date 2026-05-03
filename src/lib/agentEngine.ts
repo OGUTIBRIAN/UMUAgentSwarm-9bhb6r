@@ -224,6 +224,7 @@ export function processEmail(email: EmailInput): Omit<RoutingResult, "processing
     reasoning: buildReasoning(campusId, category, faculty, email.subject, email.body),
     draftReply: generateDraftReply(email, campusId, category, faculty),
     processedAt: new Date().toISOString(),
+    status: "draft",
   };
 }
 

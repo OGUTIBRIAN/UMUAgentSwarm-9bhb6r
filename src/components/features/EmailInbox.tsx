@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   Inbox, Search, ChevronRight, CheckCircle, Percent,
-  Building2, Tag, Clock, X, Copy, Mail, ChevronDown, ChevronUp,
+  Building2, Tag, Clock, X, Copy, Mail, ChevronDown, ChevronUp, Send,
 } from "lucide-react";
 import type { RoutingResult } from "@/types";
 import { formatDateTime } from "@/lib/utils";
@@ -11,6 +11,7 @@ import { toast } from "sonner";
 interface EmailInboxProps {
   results: RoutingResult[];
   onViewResult: (result: RoutingResult) => void;
+  onMarkSent?: (emailId: string) => void;
 }
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -39,19 +40,30 @@ const ConfidenceBadge = ({ value }: { value: number }) => {
 interface DetailModalProps {
   result: RoutingResult;
   onClose: () => void;
+  onMarkSent?: (emailId: string) => void;
 }
 
-const DetailModal = ({ result, onClose }: DetailModalProps) => {
+const DetailModal = ({ result, onClose, onMarkSent }: DetailModalProps) => {
   const [showOriginal, setShowOriginal] = useState(false);
   const [copied, setCopied] = useState(false);
   const campus = CAMPUSES.find((c) => c.id === result.campusId)!;
   const catColor = CATEGORY_COLORS[result.category] || "#F5A623";
+  const isSent = result.status === "sent";
 
   const copyReply = () => {
     navigator.clipboard.writeText(result.draftReply);
     setCopied(true);
     toast.success("Draft reply copied to clipboard");
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleSendReply = () => {
+    const mailtoUrl = `mailto:${encodeURIComponent(result.from)}?subject=${encodeURIComponent(`Re: ${result.subject}`)}&body=${encodeURIComponent(result.draftReply)}`;
+    window.open(mailtoUrl, "_self");
+    if (!isSent && onMarkSent) {
+      onMarkSent(result.emailId);
+      toast.success("Reply sent — email client opened");
+    }
   };
 
   return (
@@ -146,13 +158,26 @@ const DetailModal = ({ result, onClose }: DetailModalProps) => {
                 <Mail className="w-3.5 h-3.5 text-[hsl(var(--primary))]" />
                 <span className="text-xs font-semibold text-[hsl(var(--foreground))]">Draft Reply — {result.agentName}</span>
               </div>
-              <button
-                onClick={copyReply}
-                className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--primary)/0.15)] border border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--primary))] transition-colors"
-              >
-                {copied ? <CheckCircle className="w-3 h-3 text-[hsl(142,72%,45%)]" /> : <Copy className="w-3 h-3" />}
-                {copied ? "Copied" : "Copy"}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={copyReply}
+                  className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--primary)/0.15)] border border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--primary))] transition-colors"
+                >
+                  {copied ? <CheckCircle className="w-3 h-3 text-[hsl(142,72%,45%)]" /> : <Copy className="w-3 h-3" />}
+                  {copied ? "Copied" : "Copy"}
+                </button>
+                <button
+                  onClick={handleSendReply}
+                  className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md border font-semibold transition-colors ${
+                    isSent
+                      ? "bg-[hsl(142,72%,45%,0.15)] border-[hsl(142,72%,45%,0.4)] text-[hsl(142,72%,45%)] cursor-default"
+                      : "bg-[hsl(var(--primary)/0.15)] border-[hsl(var(--primary)/0.4)] text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/0.25)]"
+                  }`}
+                >
+                  {isSent ? <CheckCircle className="w-3 h-3" /> : <Send className="w-3 h-3" />}
+                  {isSent ? "Sent" : "Send Reply"}
+                </button>
+              </div>
             </div>
             <div className="p-4 max-h-64 overflow-y-auto">
               <pre className="text-[12px] text-[hsl(var(--foreground))] whitespace-pre-wrap leading-relaxed font-sans">
@@ -188,7 +213,7 @@ const DetailModal = ({ result, onClose }: DetailModalProps) => {
   );
 };
 
-const EmailInbox = ({ results, onViewResult }: EmailInboxProps) => {
+const EmailInbox = ({ results, onViewResult, onMarkSent }: EmailInboxProps) => {
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState<string>("all");
   const [filterCampus, setFilterCampus] = useState<string>("all");
@@ -311,6 +336,7 @@ const EmailInbox = ({ results, onViewResult }: EmailInboxProps) => {
                   <th className="text-left px-3 py-2.5 font-semibold text-[hsl(var(--muted-foreground))] uppercase tracking-wider w-[16%]">Category</th>
                   <th className="text-center px-3 py-2.5 font-semibold text-[hsl(var(--muted-foreground))] uppercase tracking-wider w-[8%]">Conf.</th>
                   <th className="text-left px-3 py-2.5 font-semibold text-[hsl(var(--muted-foreground))] uppercase tracking-wider w-[8%]">Time</th>
+                  <th className="text-center px-3 py-2.5 font-semibold text-[hsl(var(--muted-foreground))] uppercase tracking-wider w-[8%]">Status</th>
                   <th className="px-3 py-2.5 w-6" />
                 </tr>
               </thead>
@@ -383,6 +409,21 @@ const EmailInbox = ({ results, onViewResult }: EmailInboxProps) => {
                           </div>
                         </td>
 
+                        {/* Status */}
+                        <td className="px-3 py-3 text-center">
+                          {result.status === "sent" ? (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-[hsl(142,72%,45%,0.15)] text-[hsl(142,72%,45%)] border border-[hsl(142,72%,45%,0.3)]">
+                              <CheckCircle className="w-2.5 h-2.5" />
+                              Sent
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-[hsl(var(--primary)/0.12)] text-[hsl(var(--primary))] border border-[hsl(var(--primary)/0.3)]">
+                              <Mail className="w-2.5 h-2.5" />
+                              Draft
+                            </span>
+                          )}
+                        </td>
+
                         {/* Arrow */}
                         <td className="px-3 py-3">
                           <ChevronRight className="w-3.5 h-3.5 text-[hsl(var(--muted-foreground))] group-hover:text-[hsl(var(--primary))] transition-colors" />
@@ -401,6 +442,7 @@ const EmailInbox = ({ results, onViewResult }: EmailInboxProps) => {
         <DetailModal
           result={selectedResult}
           onClose={() => setSelectedResult(null)}
+          onMarkSent={onMarkSent}
         />
       )}
     </>

@@ -99,6 +99,15 @@ const Index = () => {
     setCenterTab("compose");
   }, []);
 
+  const handleMarkSent = useCallback((emailId: string) => {
+    setAllResults((prev) =>
+      prev.map((r) => (r.emailId === emailId ? { ...r, status: "sent" as const } : r))
+    );
+    if (currentResult?.emailId === emailId) {
+      setCurrentResult((prev) => prev ? { ...prev, status: "sent" as const } : prev);
+    }
+  }, [currentResult]);
+
   const handleViewFromInbox = useCallback((_result: RoutingResult) => {
     // Result is shown in the modal inside EmailInbox
   }, []);
@@ -172,7 +181,7 @@ const Index = () => {
                   />
                 )}
                 {view === "result" && currentResult && (
-                  <ResultView result={currentResult} onReset={handleReset} />
+                  <ResultView result={currentResult} onReset={handleReset} onMarkSent={handleMarkSent} />
                 )}
               </>
             )}
@@ -182,6 +191,7 @@ const Index = () => {
               <EmailInbox
                 results={allResults}
                 onViewResult={handleViewFromInbox}
+                onMarkSent={handleMarkSent}
               />
             )}
           </div>

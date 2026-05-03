@@ -30,6 +30,7 @@ export interface RoutingResult {
   draftReply: string;
   processedAt: string;
   processingSteps: ProcessingStep[];
+  status: "draft" | "sent";
 }
 
 export interface ProcessingStep {
