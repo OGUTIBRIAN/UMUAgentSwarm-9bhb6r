@@ -33,29 +33,34 @@ const Index = () => {
     processedCounts[r.campusId] = (processedCounts[r.campusId] || 0) + 1;
   });
 
-  const handleEmailSubmit = useCallback((email: EmailInput) => {
-    const result = processEmail(email);
+  const handleEmailSubmit = useCallback(async (email: EmailInput) => {
+    // Start processing animation immediately with placeholder steps
+    const placeholderSteps = buildProcessingSteps("Campus Agent", "AI Agent", "email");
+    setProcessingSteps(placeholderSteps);
+    setActiveCampusId(undefined);
+    setView("processing");
+
+    // Add received event
+    const receivedEvent: ActivityEvent = {
+      id: `ev-${Date.now()}-r`,
+      type: "received",
+      agentName: "Intake Agent",
+      campusId: "nkozi",
+      campusColor: "#F5A623",
+      subject: email.subject,
+      category: "Processing…",
+      timestamp: new Date().toISOString(),
+    };
+    setActivityFeed((prev) => [...prev, receivedEvent]);
+
+    // Call AI engine
+    const result = await processEmail(email);
     const steps = buildProcessingSteps(result.campusName, result.agentName, result.categoryLabel);
     const fullResult: RoutingResult = { ...result, processingSteps: steps };
 
     setPendingResult(fullResult);
     setProcessingSteps(steps);
     setActiveCampusId(result.campusId);
-    setView("processing");
-
-    // Add to activity feed immediately
-    const campus = CAMPUSES.find((c) => c.id === result.campusId)!;
-    const receivedEvent: ActivityEvent = {
-      id: `ev-${Date.now()}-r`,
-      type: "received",
-      agentName: result.agentName,
-      campusId: result.campusId,
-      campusColor: campus.color,
-      subject: result.subject,
-      category: result.categoryLabel,
-      timestamp: new Date().toISOString(),
-    };
-    setActivityFeed((prev) => [...prev, receivedEvent]);
   }, []);
 
   const handleProcessingComplete = useCallback(() => {
