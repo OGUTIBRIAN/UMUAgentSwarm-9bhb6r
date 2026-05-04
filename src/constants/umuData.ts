@@ -6,6 +6,8 @@ export const CAMPUSES = [
     short: "NKZ",
     location: "Main Campus, 83km Kampala–Masaka Hwy",
     email: "registrar@umu.ac.ug",
+    admissionsEmail: "admissions@umu.ac.ug",
+    ccEmail: "registrar@umu.ac.ug",
     agentName: "NkoziBot",
     color: "#F5A623",
     faculties: [
@@ -26,6 +28,8 @@ export const CAMPUSES = [
     short: "LBG",
     location: "Near Lubaga Cathedral, Kampala",
     email: "coordinatorlubaga@umu.ac.ug",
+    admissionsEmail: "coordinatorlubaga@umu.ac.ug",
+    ccEmail: "coordinatorlubaga@umu.ac.ug",
     agentName: "LubagaBot",
     color: "#29ABE2",
     faculties: [
@@ -45,6 +49,8 @@ export const CAMPUSES = [
     short: "NSB",
     location: "Opposite Nsambya Parish, Kampala",
     email: "pgmnsambya@umu.ac.ug",
+    admissionsEmail: "pgmnsambya@umu.ac.ug",
+    ccEmail: "pgmnsambya@umu.ac.ug",
     agentName: "NsambyaBot",
     color: "#E74C3C",
     faculties: [
@@ -59,6 +65,8 @@ export const CAMPUSES = [
     short: "FTP",
     location: "Virika, Fort Portal, Western Uganda",
     email: "directorfp@umu.ac.ug",
+    admissionsEmail: "directorfp@umu.ac.ug",
+    ccEmail: "directorfp@umu.ac.ug",
     agentName: "FortPortalBot",
     color: "#27AE60",
     faculties: [
@@ -76,6 +84,8 @@ export const CAMPUSES = [
     short: "MSK",
     location: "Bwala Social Centre, Masaka",
     email: "umumasaka@umu.ac.ug",
+    admissionsEmail: "umumasaka@umu.ac.ug",
+    ccEmail: "umumasaka@umu.ac.ug",
     agentName: "MasakaBot",
     color: "#9B59B6",
     faculties: [
@@ -93,6 +103,8 @@ export const CAMPUSES = [
     short: "NGT",
     location: "Former Ngetta TTC, Lira, Northern Uganda",
     email: "directorngetta@umu.ac.ug",
+    admissionsEmail: "directorngetta@umu.ac.ug",
+    ccEmail: "directorngetta@umu.ac.ug",
     agentName: "NgettaBot",
     color: "#E67E22",
     faculties: [
@@ -109,6 +121,8 @@ export const CAMPUSES = [
     short: "MBL",
     location: "St. Austin Mbale, Eastern Uganda",
     email: "jkmusisi@umu.ac.ug",
+    admissionsEmail: "jkmusisi@umu.ac.ug",
+    ccEmail: "jkmusisi@umu.ac.ug",
     agentName: "MbaleBot",
     color: "#1ABC9C",
     faculties: [
@@ -119,6 +133,38 @@ export const CAMPUSES = [
     status: "idle",
   },
 ];
+
+// UMU Key Staff Contacts (for CC/BCC in email routing)
+export const UMU_KEY_CONTACTS = {
+  registrar: "registrar@umu.ac.ug",
+  admissions: "admissions@umu.ac.ug",
+  pr: "pro@umu.ac.ug",
+  graduateStudies: "dgsre@umu.ac.ug",
+  // Vice Chancellor's office — standard institutional format (confirm with UMU IT)
+  vc: "vc@umu.ac.ug",
+  vcOffice: "vcoffice@umu.ac.ug",
+};
+
+// Helper: build a mailto: URL that pre-fills To, Subject, Body, CC
+export function buildMailtoLink({
+  to,
+  subject,
+  body,
+  cc,
+  bcc,
+}: {
+  to: string;
+  subject: string;
+  body: string;
+  cc?: string;
+  bcc?: string;
+}): string {
+  let query = `subject=${encodeURIComponent("Re: " + subject)}`;
+  query += `&body=${encodeURIComponent(body)}`;
+  if (cc) query += `&cc=${encodeURIComponent(cc)}`;
+  if (bcc) query += `&bcc=${encodeURIComponent(bcc)}`;
+  return `mailto:${encodeURIComponent(to)}?${query}`;
+}
 
 export const EMAIL_CATEGORIES = [
   { id: "admissions", label: "Admissions Inquiry", icon: "GraduationCap", color: "#F5A623" },

@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   CheckCircle, Copy, RotateCcw, Building2, Tag, Cpu,
-  Mail, Clock, ChevronDown, ChevronUp, Percent, Send,
+  Mail, Clock, ChevronDown, ChevronUp, Percent, Send, AtSign,
 } from "lucide-react";
-import { CAMPUSES } from "@/constants/umuData";
+import { CAMPUSES, buildMailtoLink } from "@/constants/umuData";
 import { formatDateTime } from "@/lib/utils";
 import type { RoutingResult } from "@/types";
 import { toast } from "sonner";
@@ -23,12 +23,58 @@ const CATEGORY_COLORS: Record<string, string> = {
   engineering: "#E67E22",
 };
 
+// ── Typing animation hook ────────────────────────────────────────────────────
+function useTypingEffect(text: string, speed = 18) {
+  const [displayed, setDisplayed] = useState("");
+  const [isDone, setIsDone] = useState(false);
+  const rafRef = useRef<number | null>(null);
+  const indexRef = useRef(0);
+  const lastTimeRef = useRef(0);
+
+  useEffect(() => {
+    setDisplayed("");
+    setIsDone(false);
+    indexRef.current = 0;
+    lastTimeRef.current = 0;
+
+    const step = (timestamp: number) => {
+      if (!lastTimeRef.current) lastTimeRef.current = timestamp;
+      const elapsed = timestamp - lastTimeRef.current;
+
+      if (elapsed >= speed) {
+        const charsPerFrame = Math.max(1, Math.floor(text.length / 300));
+        indexRef.current = Math.min(indexRef.current + charsPerFrame, text.length);
+        setDisplayed(text.slice(0, indexRef.current));
+        lastTimeRef.current = timestamp;
+
+        if (indexRef.current >= text.length) {
+          setIsDone(true);
+          return;
+        }
+      }
+      rafRef.current = requestAnimationFrame(step);
+    };
+
+    rafRef.current = requestAnimationFrame(step);
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, [text, speed]);
+
+  return { displayed, isDone };
+}
+
+// ── Component ────────────────────────────────────────────────────────────────
 const ResultView = ({ result, onReset, onMarkSent }: ResultViewProps) => {
   const [showOriginal, setShowOriginal] = useState(false);
+  const [showCCInfo, setShowCCInfo] = useState(false);
   const [copied, setCopied] = useState(false);
-  const campus = CAMPUSES.find((c) => c.id === result.campusId)!;
+  const campus = CAMPUSES.find((c) => c.id === result.campusId) ?? CAMPUSES[0];
   const catColor = CATEGORY_COLORS[result.category] || "#F5A623";
   const isSent = result.status === "sent";
+
+  // Streaming typing effect
+  const { displayed: typedReply, isDone: typingDone } = useTypingEffect(result.draftReply, 12);
 
   const copyReply = () => {
     navigator.clipboard.writeText(result.draftReply);
@@ -38,11 +84,16 @@ const ResultView = ({ result, onReset, onMarkSent }: ResultViewProps) => {
   };
 
   const handleSendReply = () => {
-    const mailtoUrl = `mailto:${encodeURIComponent(result.from)}?subject=${encodeURIComponent(`Re: ${result.subject}`)}&body=${encodeURIComponent(result.draftReply)}`;
-    window.open(mailtoUrl, "_self");
+    const url = buildMailtoLink({
+      to: result.from,
+      subject: result.subject,
+      body: result.draftReply,
+      cc: campus.ccEmail,
+    });
+    window.open(url, "_self");
     if (!isSent && onMarkSent) {
       onMarkSent(result.emailId);
-      toast.success("Reply sent — email client opened");
+      toast.success(`Reply sent — CC'd to ${campus.ccEmail}`);
     }
   };
 
@@ -109,7 +160,7 @@ const ResultView = ({ result, onReset, onMarkSent }: ResultViewProps) => {
         </div>
       </div>
 
-      {/* Draft reply */}
+      {/* Draft reply with streaming effect */}
       <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl overflow-hidden">
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-[hsl(var(--border))] bg-[hsl(var(--secondary)/0.5)]">
           <div className="flex items-center gap-2">
@@ -117,18 +168,26 @@ const ResultView = ({ result, onReset, onMarkSent }: ResultViewProps) => {
             <span className="text-xs font-semibold text-[hsl(var(--foreground))]">
               Draft Reply — {result.agentName}
             </span>
+            {!typingDone && (
+              <span className="flex items-center gap-1 text-[10px] text-[hsl(var(--primary))] animate-pulse">
+                <span className="w-1.5 h-1.5 rounded-full bg-[hsl(var(--primary))] inline-block" />
+                AI writing…
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={copyReply}
-              className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--primary)/0.15)] border border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--primary))] transition-colors"
+              disabled={!typingDone}
+              className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--primary)/0.15)] border border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--primary))] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               {copied ? <CheckCircle className="w-3 h-3 text-[hsl(142,72%,45%)]" /> : <Copy className="w-3 h-3" />}
               {copied ? "Copied" : "Copy"}
             </button>
             <button
               onClick={handleSendReply}
-              className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md border font-semibold transition-colors ${
+              disabled={!typingDone}
+              className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md border font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-colors ${
                 isSent
                   ? "bg-[hsl(142,72%,45%,0.15)] border-[hsl(142,72%,45%,0.4)] text-[hsl(142,72%,45%)] cursor-default"
                   : "bg-[hsl(var(--primary)/0.15)] border-[hsl(var(--primary)/0.4)] text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/0.25)]"
@@ -140,11 +199,40 @@ const ResultView = ({ result, onReset, onMarkSent }: ResultViewProps) => {
           </div>
         </div>
 
-        <div className="p-4">
+        {/* Streaming text area */}
+        <div className="p-4 min-h-[120px]">
           <pre className="text-[12px] text-[hsl(var(--foreground))] whitespace-pre-wrap leading-relaxed font-sans">
-            {result.draftReply}
+            {typedReply}
+            {!typingDone && (
+              <span className="inline-block w-0.5 h-3.5 bg-[hsl(var(--primary))] ml-0.5 animate-pulse align-middle" />
+            )}
           </pre>
         </div>
+
+        {/* CC info banner */}
+        {typingDone && (
+          <div className="border-t border-[hsl(var(--border))] px-4 py-2 bg-[hsl(var(--secondary)/0.3)]">
+            <button
+              onClick={() => setShowCCInfo(!showCCInfo)}
+              className="flex items-center gap-2 text-[10px] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors w-full"
+            >
+              <AtSign className="w-3 h-3 flex-shrink-0" />
+              <span>Sending will CC <strong className="text-[hsl(var(--foreground))]">{campus.ccEmail}</strong> ({campus.agentName} / {campus.name})</span>
+              {showCCInfo ? <ChevronUp className="w-3 h-3 ml-auto" /> : <ChevronDown className="w-3 h-3 ml-auto" />}
+            </button>
+            {showCCInfo && (
+              <div className="mt-2 p-2.5 rounded-lg bg-[hsl(var(--background))] border border-[hsl(var(--border))] space-y-1.5 text-[10px] text-[hsl(var(--muted-foreground))]">
+                <div className="flex gap-2"><span className="w-14 font-semibold text-[hsl(var(--foreground))]">To:</span><span className="mono">{result.from}</span></div>
+                <div className="flex gap-2"><span className="w-14 font-semibold text-[hsl(var(--foreground))]">CC:</span><span className="mono">{campus.ccEmail}</span></div>
+                <div className="flex gap-2"><span className="w-14 font-semibold text-[hsl(var(--foreground))]">Subject:</span><span>Re: {result.subject}</span></div>
+                <div className="mt-2 pt-2 border-t border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))]">
+                  The campus coordinator at {campus.name} will receive a copy of your reply for their records and follow-up.
+                  For production use, configure SMTP via your email provider to send automatically.
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Original email toggle */}

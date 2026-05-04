@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Inbox, Search, ChevronRight, CheckCircle, Percent,
-  Building2, Tag, Clock, X, Copy, Mail, ChevronDown, ChevronUp, Send,
+  Building2, Tag, Clock, X, Copy, Mail, ChevronDown, ChevronUp, Send, AtSign,
 } from "lucide-react";
 import type { RoutingResult } from "@/types";
 import { formatDateTime } from "@/lib/utils";
-import { CAMPUSES } from "@/constants/umuData";
+import { CAMPUSES, buildMailtoLink } from "@/constants/umuData";
 import { toast } from "sonner";
 
 interface EmailInboxProps {
@@ -24,8 +24,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 
 const ConfidenceBadge = ({ value }: { value: number }) => {
-  const color =
-    value >= 80 ? "#27AE60" : value >= 60 ? "#F5A623" : "#E74C3C";
+  const color = value >= 80 ? "#27AE60" : value >= 60 ? "#F5A623" : "#E74C3C";
   return (
     <div
       className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold mono"
@@ -37,6 +36,41 @@ const ConfidenceBadge = ({ value }: { value: number }) => {
   );
 };
 
+// ── Typing effect for modal ──────────────────────────────────────────────────
+function useTypingEffect(text: string, speed = 10) {
+  const [displayed, setDisplayed] = useState("");
+  const [isDone, setIsDone] = useState(false);
+  const rafRef = useRef<number | null>(null);
+  const indexRef = useRef(0);
+  const lastTimeRef = useRef(0);
+
+  useEffect(() => {
+    setDisplayed("");
+    setIsDone(false);
+    indexRef.current = 0;
+    lastTimeRef.current = 0;
+
+    const step = (timestamp: number) => {
+      if (!lastTimeRef.current) lastTimeRef.current = timestamp;
+      const elapsed = timestamp - lastTimeRef.current;
+      if (elapsed >= speed) {
+        const charsPerFrame = Math.max(1, Math.floor(text.length / 250));
+        indexRef.current = Math.min(indexRef.current + charsPerFrame, text.length);
+        setDisplayed(text.slice(0, indexRef.current));
+        lastTimeRef.current = timestamp;
+        if (indexRef.current >= text.length) { setIsDone(true); return; }
+      }
+      rafRef.current = requestAnimationFrame(step);
+    };
+
+    rafRef.current = requestAnimationFrame(step);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, [text, speed]);
+
+  return { displayed, isDone };
+}
+
+// ── Detail Modal ─────────────────────────────────────────────────────────────
 interface DetailModalProps {
   result: RoutingResult;
   onClose: () => void;
@@ -45,10 +79,13 @@ interface DetailModalProps {
 
 const DetailModal = ({ result, onClose, onMarkSent }: DetailModalProps) => {
   const [showOriginal, setShowOriginal] = useState(false);
+  const [showCCInfo, setShowCCInfo] = useState(false);
   const [copied, setCopied] = useState(false);
-  const campus = CAMPUSES.find((c) => c.id === result.campusId)!;
+  const campus = CAMPUSES.find((c) => c.id === result.campusId) ?? CAMPUSES[0];
   const catColor = CATEGORY_COLORS[result.category] || "#F5A623";
   const isSent = result.status === "sent";
+
+  const { displayed: typedReply, isDone: typingDone } = useTypingEffect(result.draftReply, 10);
 
   const copyReply = () => {
     navigator.clipboard.writeText(result.draftReply);
@@ -58,20 +95,22 @@ const DetailModal = ({ result, onClose, onMarkSent }: DetailModalProps) => {
   };
 
   const handleSendReply = () => {
-    const mailtoUrl = `mailto:${encodeURIComponent(result.from)}?subject=${encodeURIComponent(`Re: ${result.subject}`)}&body=${encodeURIComponent(result.draftReply)}`;
-    window.open(mailtoUrl, "_self");
+    const url = buildMailtoLink({
+      to: result.from,
+      subject: result.subject,
+      body: result.draftReply,
+      cc: campus.ccEmail,
+    });
+    window.open(url, "_self");
     if (!isSent && onMarkSent) {
       onMarkSent(result.emailId);
-      toast.success("Reply sent — email client opened");
+      toast.success(`Reply sent — CC'd to ${campus.ccEmail}`);
     }
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      {/* Backdrop */}
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-
-      {/* Modal */}
       <div
         className="relative bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl"
         onClick={(e) => e.stopPropagation()}
@@ -100,11 +139,8 @@ const DetailModal = ({ result, onClose, onMarkSent }: DetailModalProps) => {
             <div className="text-[11px] mono text-[hsl(var(--muted-foreground))] mt-0.5">{result.from}</div>
           </div>
 
-          {/* Routing summary grid */}
-          <div
-            className="border rounded-xl p-4"
-            style={{ borderColor: `${campus.color}40` }}
-          >
+          {/* Routing grid */}
+          <div className="border rounded-xl p-4" style={{ borderColor: `${campus.color}40` }}>
             <div className="grid grid-cols-2 gap-2">
               <div className="bg-[hsl(var(--background))] rounded-lg p-2.5 border border-[hsl(var(--border))]">
                 <div className="flex items-center gap-1.5 mb-1">
@@ -114,7 +150,6 @@ const DetailModal = ({ result, onClose, onMarkSent }: DetailModalProps) => {
                 <div className="text-xs font-bold" style={{ color: campus.color }}>{campus.agentName}</div>
                 <div className="text-[10px] text-[hsl(var(--muted-foreground))]">{campus.name}</div>
               </div>
-
               <div className="bg-[hsl(var(--background))] rounded-lg p-2.5 border border-[hsl(var(--border))]">
                 <div className="flex items-center gap-1.5 mb-1">
                   <Tag className="w-3 h-3 text-[hsl(var(--muted-foreground))]" />
@@ -126,7 +161,6 @@ const DetailModal = ({ result, onClose, onMarkSent }: DetailModalProps) => {
                   <span className="text-[10px] text-[hsl(var(--muted-foreground))]">{result.confidence}% confidence</span>
                 </div>
               </div>
-
               <div className="bg-[hsl(var(--background))] rounded-lg p-2.5 border border-[hsl(var(--border))]">
                 <div className="flex items-center gap-1.5 mb-1">
                   <Mail className="w-3 h-3 text-[hsl(var(--muted-foreground))]" />
@@ -134,7 +168,6 @@ const DetailModal = ({ result, onClose, onMarkSent }: DetailModalProps) => {
                 </div>
                 <div className="text-[11px] font-semibold text-[hsl(var(--foreground))] leading-tight">{result.faculty}</div>
               </div>
-
               <div className="bg-[hsl(var(--background))] rounded-lg p-2.5 border border-[hsl(var(--border))]">
                 <div className="flex items-center gap-1.5 mb-1">
                   <Clock className="w-3 h-3 text-[hsl(var(--muted-foreground))]" />
@@ -143,32 +176,38 @@ const DetailModal = ({ result, onClose, onMarkSent }: DetailModalProps) => {
                 <div className="text-[11px] font-semibold text-[hsl(var(--foreground))]">{formatDateTime(result.processedAt)}</div>
               </div>
             </div>
-
-            {/* Reasoning */}
             <div className="mt-3 bg-[hsl(var(--background))] rounded-lg p-2.5 border border-[hsl(var(--border))]">
               <div className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-1">Agent Reasoning</div>
               <p className="text-[11px] text-[hsl(var(--foreground))] leading-relaxed">{result.reasoning}</p>
             </div>
           </div>
 
-          {/* Draft reply */}
+          {/* Draft reply with streaming effect */}
           <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl overflow-hidden">
             <div className="flex items-center justify-between px-4 py-2.5 border-b border-[hsl(var(--border))] bg-[hsl(var(--secondary)/0.5)]">
               <div className="flex items-center gap-2">
                 <Mail className="w-3.5 h-3.5 text-[hsl(var(--primary))]" />
                 <span className="text-xs font-semibold text-[hsl(var(--foreground))]">Draft Reply — {result.agentName}</span>
+                {!typingDone && (
+                  <span className="flex items-center gap-1 text-[10px] text-[hsl(var(--primary))] animate-pulse">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[hsl(var(--primary))] inline-block" />
+                    AI writing…
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <button
                   onClick={copyReply}
-                  className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--primary)/0.15)] border border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--primary))] transition-colors"
+                  disabled={!typingDone}
+                  className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--primary)/0.15)] border border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--primary))] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
                   {copied ? <CheckCircle className="w-3 h-3 text-[hsl(142,72%,45%)]" /> : <Copy className="w-3 h-3" />}
                   {copied ? "Copied" : "Copy"}
                 </button>
                 <button
                   onClick={handleSendReply}
-                  className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md border font-semibold transition-colors ${
+                  disabled={!typingDone}
+                  className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md border font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-colors ${
                     isSent
                       ? "bg-[hsl(142,72%,45%,0.15)] border-[hsl(142,72%,45%,0.4)] text-[hsl(142,72%,45%)] cursor-default"
                       : "bg-[hsl(var(--primary)/0.15)] border-[hsl(var(--primary)/0.4)] text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/0.25)]"
@@ -181,9 +220,33 @@ const DetailModal = ({ result, onClose, onMarkSent }: DetailModalProps) => {
             </div>
             <div className="p-4 max-h-64 overflow-y-auto">
               <pre className="text-[12px] text-[hsl(var(--foreground))] whitespace-pre-wrap leading-relaxed font-sans">
-                {result.draftReply}
+                {typedReply}
+                {!typingDone && (
+                  <span className="inline-block w-0.5 h-3.5 bg-[hsl(var(--primary))] ml-0.5 animate-pulse align-middle" />
+                )}
               </pre>
             </div>
+
+            {/* CC info banner */}
+            {typingDone && (
+              <div className="border-t border-[hsl(var(--border))] px-4 py-2 bg-[hsl(var(--secondary)/0.3)]">
+                <button
+                  onClick={() => setShowCCInfo(!showCCInfo)}
+                  className="flex items-center gap-2 text-[10px] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors w-full"
+                >
+                  <AtSign className="w-3 h-3 flex-shrink-0" />
+                  <span>Sending will CC <strong className="text-[hsl(var(--foreground))]">{campus.ccEmail}</strong> ({campus.name})</span>
+                  {showCCInfo ? <ChevronUp className="w-3 h-3 ml-auto" /> : <ChevronDown className="w-3 h-3 ml-auto" />}
+                </button>
+                {showCCInfo && (
+                  <div className="mt-2 p-2.5 rounded-lg bg-[hsl(var(--background))] border border-[hsl(var(--border))] space-y-1 text-[10px] text-[hsl(var(--muted-foreground))]">
+                    <div className="flex gap-2"><span className="w-14 font-semibold text-[hsl(var(--foreground))]">To:</span><span className="mono">{result.from}</span></div>
+                    <div className="flex gap-2"><span className="w-14 font-semibold text-[hsl(var(--foreground))]">CC:</span><span className="mono">{campus.ccEmail}</span></div>
+                    <div className="flex gap-2"><span className="w-14 font-semibold text-[hsl(var(--foreground))]">Subject:</span><span>Re: {result.subject}</span></div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Original email toggle */}
@@ -194,7 +257,6 @@ const DetailModal = ({ result, onClose, onMarkSent }: DetailModalProps) => {
             <span>View original email</span>
             {showOriginal ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
           </button>
-
           {showOriginal && (
             <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4">
               <div className="space-y-2 text-[11px]">
@@ -213,6 +275,7 @@ const DetailModal = ({ result, onClose, onMarkSent }: DetailModalProps) => {
   );
 };
 
+// ── Main Inbox Component ─────────────────────────────────────────────────────
 const EmailInbox = ({ results, onViewResult, onMarkSent }: EmailInboxProps) => {
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState<string>("all");
@@ -237,6 +300,11 @@ const EmailInbox = ({ results, onViewResult, onMarkSent }: EmailInboxProps) => {
     setSelectedResult(result);
     onViewResult(result);
   };
+
+  // Keep modal result in sync when parent marks as sent
+  const modalResult = selectedResult
+    ? results.find((r) => r.emailId === selectedResult.emailId) ?? selectedResult
+    : null;
 
   return (
     <>
@@ -267,7 +335,6 @@ const EmailInbox = ({ results, onViewResult, onMarkSent }: EmailInboxProps) => {
               className="w-full pl-8 pr-3 py-2 bg-[hsl(var(--background))] border border-[hsl(var(--border))] rounded-lg text-xs text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] focus:outline-none focus:border-[hsl(var(--primary)/0.6)] focus:ring-1 focus:ring-[hsl(var(--primary)/0.3)] transition-colors"
             />
           </div>
-
           {results.length > 0 && (
             <div className="flex items-center gap-2 flex-wrap">
               <select
@@ -290,11 +357,7 @@ const EmailInbox = ({ results, onViewResult, onMarkSent }: EmailInboxProps) => {
                 <option value="all">All Campuses</option>
                 {campuses.map((id) => {
                   const campus = CAMPUSES.find((c) => c.id === id);
-                  return (
-                    <option key={id} value={id}>
-                      {campus?.agentName ?? id}
-                    </option>
-                  );
+                  return <option key={id} value={id}>{campus?.agentName ?? id}</option>;
                 })}
               </select>
               {(filterCategory !== "all" || filterCampus !== "all" || search) && (
@@ -302,8 +365,7 @@ const EmailInbox = ({ results, onViewResult, onMarkSent }: EmailInboxProps) => {
                   onClick={() => { setFilterCategory("all"); setFilterCampus("all"); setSearch(""); }}
                   className="flex items-center gap-1 text-[11px] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--destructive))] transition-colors"
                 >
-                  <X className="w-3 h-3" />
-                  Clear
+                  <X className="w-3 h-3" /> Clear
                 </button>
               )}
             </div>
@@ -326,7 +388,6 @@ const EmailInbox = ({ results, onViewResult, onMarkSent }: EmailInboxProps) => {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            {/* Table header */}
             <table className="w-full text-[11px]">
               <thead>
                 <tr className="border-b border-[hsl(var(--border))] bg-[hsl(var(--secondary)/0.5)]">
@@ -345,10 +406,9 @@ const EmailInbox = ({ results, onViewResult, onMarkSent }: EmailInboxProps) => {
                   .slice()
                   .reverse()
                   .map((result, idx) => {
-                    const campus = CAMPUSES.find((c) => c.id === result.campusId)!;
+                    const campus = CAMPUSES.find((c) => c.id === result.campusId) ?? CAMPUSES[0];
                     const catColor = CATEGORY_COLORS[result.category] || "#F5A623";
                     const isEven = idx % 2 === 0;
-
                     return (
                       <tr
                         key={result.emailId}
@@ -357,37 +417,21 @@ const EmailInbox = ({ results, onViewResult, onMarkSent }: EmailInboxProps) => {
                           isEven ? "bg-transparent" : "bg-[hsl(var(--secondary)/0.3)]"
                         }`}
                       >
-                        {/* Subject */}
                         <td className="px-4 py-3">
                           <div className="font-semibold text-[hsl(var(--foreground))] truncate max-w-[200px]">{result.subject}</div>
                           <div className="text-[hsl(var(--muted-foreground))] truncate max-w-[200px] mt-0.5 mono">{result.emailId}</div>
                         </td>
-
-                        {/* From */}
                         <td className="px-3 py-3">
-                          <div className="mono text-[hsl(var(--foreground))] truncate max-w-[130px]">
-                            {result.from.split("@")[0]}
-                          </div>
-                          <div className="text-[hsl(var(--muted-foreground))] truncate max-w-[130px]">
-                            @{result.from.split("@")[1]}
-                          </div>
+                          <div className="mono text-[hsl(var(--foreground))] truncate max-w-[130px]">{result.from.split("@")[0]}</div>
+                          <div className="text-[hsl(var(--muted-foreground))] truncate max-w-[130px]">@{result.from.split("@")[1]}</div>
                         </td>
-
-                        {/* Campus Agent */}
                         <td className="px-3 py-3">
                           <div className="flex items-center gap-1.5">
-                            <div
-                              className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                              style={{ backgroundColor: campus.color }}
-                            />
-                            <span className="font-semibold truncate" style={{ color: campus.color }}>
-                              {campus.agentName}
-                            </span>
+                            <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: campus.color }} />
+                            <span className="font-semibold truncate" style={{ color: campus.color }}>{campus.agentName}</span>
                           </div>
                           <div className="text-[hsl(var(--muted-foreground))] truncate mt-0.5 ml-3">{campus.short}</div>
                         </td>
-
-                        {/* Category */}
                         <td className="px-3 py-3">
                           <span
                             className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold"
@@ -396,35 +440,23 @@ const EmailInbox = ({ results, onViewResult, onMarkSent }: EmailInboxProps) => {
                             {result.categoryLabel}
                           </span>
                         </td>
-
-                        {/* Confidence */}
                         <td className="px-3 py-3 text-center">
                           <ConfidenceBadge value={result.confidence} />
                         </td>
-
-                        {/* Time */}
                         <td className="px-3 py-3">
-                          <div className="text-[hsl(var(--muted-foreground))] mono whitespace-nowrap">
-                            {formatDateTime(result.processedAt)}
-                          </div>
+                          <div className="text-[hsl(var(--muted-foreground))] mono whitespace-nowrap">{formatDateTime(result.processedAt)}</div>
                         </td>
-
-                        {/* Status */}
                         <td className="px-3 py-3 text-center">
                           {result.status === "sent" ? (
                             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-[hsl(142,72%,45%,0.15)] text-[hsl(142,72%,45%)] border border-[hsl(142,72%,45%,0.3)]">
-                              <CheckCircle className="w-2.5 h-2.5" />
-                              Sent
+                              <CheckCircle className="w-2.5 h-2.5" /> Sent
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-[hsl(var(--primary)/0.12)] text-[hsl(var(--primary))] border border-[hsl(var(--primary)/0.3)]">
-                              <Mail className="w-2.5 h-2.5" />
-                              Draft
+                              <Mail className="w-2.5 h-2.5" /> Draft
                             </span>
                           )}
                         </td>
-
-                        {/* Arrow */}
                         <td className="px-3 py-3">
                           <ChevronRight className="w-3.5 h-3.5 text-[hsl(var(--muted-foreground))] group-hover:text-[hsl(var(--primary))] transition-colors" />
                         </td>
@@ -437,10 +469,9 @@ const EmailInbox = ({ results, onViewResult, onMarkSent }: EmailInboxProps) => {
         )}
       </div>
 
-      {/* Detail modal */}
-      {selectedResult && (
+      {modalResult && (
         <DetailModal
-          result={selectedResult}
+          result={modalResult}
           onClose={() => setSelectedResult(null)}
           onMarkSent={onMarkSent}
         />
