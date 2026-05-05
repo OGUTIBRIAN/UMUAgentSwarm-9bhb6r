@@ -1,12 +1,14 @@
 import { useState, useEffect, useRef } from "react";
 import {
   CheckCircle, Copy, RotateCcw, Building2, Tag, Cpu,
-  Mail, Clock, ChevronDown, ChevronUp, Percent, Send, AtSign,
+  Mail, Clock, ChevronDown, ChevronUp, Percent, Send, AtSign, Loader2,
 } from "lucide-react";
 import { CAMPUSES, buildMailtoLink } from "@/constants/umuData";
 import { formatDateTime } from "@/lib/utils";
 import type { RoutingResult } from "@/types";
 import { toast } from "sonner";
+import { supabase } from "@/lib/supabase";
+import { FunctionsHttpError } from "@supabase/supabase-js";
 
 interface ResultViewProps {
   result: RoutingResult;
@@ -24,7 +26,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 
 // ── Typing animation hook ────────────────────────────────────────────────────
-function useTypingEffect(text: string, speed = 18) {
+function useTypingEffect(text: string, speed = 12) {
   const [displayed, setDisplayed] = useState("");
   const [isDone, setIsDone] = useState(false);
   const rafRef = useRef<number | null>(null);
@@ -40,25 +42,18 @@ function useTypingEffect(text: string, speed = 18) {
     const step = (timestamp: number) => {
       if (!lastTimeRef.current) lastTimeRef.current = timestamp;
       const elapsed = timestamp - lastTimeRef.current;
-
       if (elapsed >= speed) {
         const charsPerFrame = Math.max(1, Math.floor(text.length / 300));
         indexRef.current = Math.min(indexRef.current + charsPerFrame, text.length);
         setDisplayed(text.slice(0, indexRef.current));
         lastTimeRef.current = timestamp;
-
-        if (indexRef.current >= text.length) {
-          setIsDone(true);
-          return;
-        }
+        if (indexRef.current >= text.length) { setIsDone(true); return; }
       }
       rafRef.current = requestAnimationFrame(step);
     };
 
     rafRef.current = requestAnimationFrame(step);
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
   }, [text, speed]);
 
   return { displayed, isDone };
@@ -69,11 +64,11 @@ const ResultView = ({ result, onReset, onMarkSent }: ResultViewProps) => {
   const [showOriginal, setShowOriginal] = useState(false);
   const [showCCInfo, setShowCCInfo] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [sending, setSending] = useState(false);
   const campus = CAMPUSES.find((c) => c.id === result.campusId) ?? CAMPUSES[0];
   const catColor = CATEGORY_COLORS[result.category] || "#F5A623";
   const isSent = result.status === "sent";
 
-  // Streaming typing effect
   const { displayed: typedReply, isDone: typingDone } = useTypingEffect(result.draftReply, 12);
 
   const copyReply = () => {
@@ -83,27 +78,53 @@ const ResultView = ({ result, onReset, onMarkSent }: ResultViewProps) => {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleSendReply = () => {
-    const url = buildMailtoLink({
-      to: result.from,
-      subject: result.subject,
-      body: result.draftReply,
-      cc: campus.ccEmail,
+  const handleSendReply = async () => {
+    if (isSent || sending) return;
+    setSending(true);
+
+    const { data, error } = await supabase.functions.invoke('send-email', {
+      body: {
+        to: result.from,
+        subject: `Re: ${result.subject}`,
+        body: result.draftReply,
+        cc: campus.ccEmail,
+        fromName: `${result.agentName} — Uganda Martyrs University`,
+        replyTo: campus.email,
+      },
     });
-    window.open(url, "_self");
-    if (!isSent && onMarkSent) {
-      onMarkSent(result.emailId);
-      toast.success(`Reply sent — CC'd to ${campus.ccEmail}`);
+
+    if (error) {
+      let errorMessage = error.message;
+      if (error instanceof FunctionsHttpError) {
+        try {
+          const textContent = await error.context?.text();
+          errorMessage = textContent || error.message;
+        } catch { /* ignore */ }
+      }
+
+      // Check if it's a missing API key error — fall back to mailto:
+      if (errorMessage.includes('RESEND_API_KEY') || errorMessage.includes('not configured')) {
+        toast.info('Email service not yet configured — opening your email client instead');
+        const url = buildMailtoLink({ to: result.from, subject: result.subject, body: result.draftReply, cc: campus.ccEmail });
+        window.open(url, '_self');
+        if (onMarkSent) onMarkSent(result.emailId);
+      } else {
+        toast.error(`Send failed: ${errorMessage}`);
+      }
+      setSending(false);
+      return;
     }
+
+    setSending(false);
+    if (onMarkSent) onMarkSent(result.emailId);
+    toast.success(`Email sent to ${result.from} — CC'd ${campus.ccEmail}`);
+    console.log('[send-email] Message ID:', data?.messageId);
   };
 
   return (
     <div className="space-y-3 fade-in-up">
       {/* Routing summary */}
-      <div
-        className="bg-[hsl(var(--card))] border rounded-xl p-4"
-        style={{ borderColor: `${campus.color}40` }}
-      >
+      <div className="bg-[hsl(var(--card))] border rounded-xl p-4" style={{ borderColor: `${campus.color}40` }}>
         <div className="flex items-center gap-2 mb-3">
           <CheckCircle className="w-4 h-4 text-[hsl(142,72%,45%)]" />
           <span className="text-xs font-semibold text-[hsl(var(--foreground))]">Email Successfully Routed</span>
@@ -116,9 +137,7 @@ const ResultView = ({ result, onReset, onMarkSent }: ResultViewProps) => {
               <Building2 className="w-3 h-3 text-[hsl(var(--muted-foreground))]" />
               <span className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase tracking-wider">Campus</span>
             </div>
-            <div className="text-xs font-bold" style={{ color: campus.color }}>
-              {campus.agentName}
-            </div>
+            <div className="text-xs font-bold" style={{ color: campus.color }}>{campus.agentName}</div>
             <div className="text-[10px] text-[hsl(var(--muted-foreground))]">{campus.name}</div>
           </div>
 
@@ -127,9 +146,7 @@ const ResultView = ({ result, onReset, onMarkSent }: ResultViewProps) => {
               <Tag className="w-3 h-3 text-[hsl(var(--muted-foreground))]" />
               <span className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase tracking-wider">Category</span>
             </div>
-            <div className="text-xs font-bold" style={{ color: catColor }}>
-              {result.categoryLabel}
-            </div>
+            <div className="text-xs font-bold" style={{ color: catColor }}>{result.categoryLabel}</div>
             <div className="flex items-center gap-1 mt-0.5">
               <Percent className="w-2.5 h-2.5 text-[hsl(var(--muted-foreground))]" />
               <span className="text-[10px] text-[hsl(var(--muted-foreground))]">{result.confidence}% confidence</span>
@@ -153,7 +170,6 @@ const ResultView = ({ result, onReset, onMarkSent }: ResultViewProps) => {
           </div>
         </div>
 
-        {/* Reasoning */}
         <div className="mt-3 bg-[hsl(var(--background))] rounded-lg p-2.5 border border-[hsl(var(--border))]">
           <div className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-1">Agent reasoning</div>
           <p className="text-[11px] text-[hsl(var(--foreground))] leading-relaxed">{result.reasoning}</p>
@@ -165,9 +181,7 @@ const ResultView = ({ result, onReset, onMarkSent }: ResultViewProps) => {
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-[hsl(var(--border))] bg-[hsl(var(--secondary)/0.5)]">
           <div className="flex items-center gap-2">
             <Mail className="w-3.5 h-3.5 text-[hsl(var(--primary))]" />
-            <span className="text-xs font-semibold text-[hsl(var(--foreground))]">
-              Draft Reply — {result.agentName}
-            </span>
+            <span className="text-xs font-semibold text-[hsl(var(--foreground))]">Draft Reply — {result.agentName}</span>
             {!typingDone && (
               <span className="flex items-center gap-1 text-[10px] text-[hsl(var(--primary))] animate-pulse">
                 <span className="w-1.5 h-1.5 rounded-full bg-[hsl(var(--primary))] inline-block" />
@@ -186,20 +200,25 @@ const ResultView = ({ result, onReset, onMarkSent }: ResultViewProps) => {
             </button>
             <button
               onClick={handleSendReply}
-              disabled={!typingDone}
+              disabled={!typingDone || sending || isSent}
               className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md border font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-colors ${
                 isSent
                   ? "bg-[hsl(142,72%,45%,0.15)] border-[hsl(142,72%,45%,0.4)] text-[hsl(142,72%,45%)] cursor-default"
                   : "bg-[hsl(var(--primary)/0.15)] border-[hsl(var(--primary)/0.4)] text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/0.25)]"
               }`}
             >
-              {isSent ? <CheckCircle className="w-3 h-3" /> : <Send className="w-3 h-3" />}
-              {isSent ? "Sent" : "Send Reply"}
+              {sending ? (
+                <><Loader2 className="w-3 h-3 animate-spin" />Sending…</>
+              ) : isSent ? (
+                <><CheckCircle className="w-3 h-3" />Sent</>
+              ) : (
+                <><Send className="w-3 h-3" />Send Reply</>
+              )}
             </button>
           </div>
         </div>
 
-        {/* Streaming text area */}
+        {/* Streaming text */}
         <div className="p-4 min-h-[120px]">
           <pre className="text-[12px] text-[hsl(var(--foreground))] whitespace-pre-wrap leading-relaxed font-sans">
             {typedReply}
@@ -209,7 +228,7 @@ const ResultView = ({ result, onReset, onMarkSent }: ResultViewProps) => {
           </pre>
         </div>
 
-        {/* CC info banner */}
+        {/* CC info */}
         {typingDone && (
           <div className="border-t border-[hsl(var(--border))] px-4 py-2 bg-[hsl(var(--secondary)/0.3)]">
             <button
@@ -217,7 +236,11 @@ const ResultView = ({ result, onReset, onMarkSent }: ResultViewProps) => {
               className="flex items-center gap-2 text-[10px] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors w-full"
             >
               <AtSign className="w-3 h-3 flex-shrink-0" />
-              <span>Sending will CC <strong className="text-[hsl(var(--foreground))]">{campus.ccEmail}</strong> ({campus.agentName} / {campus.name})</span>
+              <span>
+                {isSent
+                  ? <>Email sent ✓ — CC'd <strong className="text-[hsl(var(--foreground))]">{campus.ccEmail}</strong></>
+                  : <>Sending will CC <strong className="text-[hsl(var(--foreground))]">{campus.ccEmail}</strong> ({campus.name})</>}
+              </span>
               {showCCInfo ? <ChevronUp className="w-3 h-3 ml-auto" /> : <ChevronDown className="w-3 h-3 ml-auto" />}
             </button>
             {showCCInfo && (
@@ -225,9 +248,8 @@ const ResultView = ({ result, onReset, onMarkSent }: ResultViewProps) => {
                 <div className="flex gap-2"><span className="w-14 font-semibold text-[hsl(var(--foreground))]">To:</span><span className="mono">{result.from}</span></div>
                 <div className="flex gap-2"><span className="w-14 font-semibold text-[hsl(var(--foreground))]">CC:</span><span className="mono">{campus.ccEmail}</span></div>
                 <div className="flex gap-2"><span className="w-14 font-semibold text-[hsl(var(--foreground))]">Subject:</span><span>Re: {result.subject}</span></div>
-                <div className="mt-2 pt-2 border-t border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))]">
-                  The campus coordinator at {campus.name} will receive a copy of your reply for their records and follow-up.
-                  For production use, configure SMTP via your email provider to send automatically.
+                <div className="mt-2 pt-2 border-t border-[hsl(var(--border))]">
+                  Sent via Resend email service. To add Dean/VC CC, configure <span className="mono">DEAN_EMAIL</span> in OnSpace Cloud Secrets.
                 </div>
               </div>
             )}
@@ -245,7 +267,7 @@ const ResultView = ({ result, onReset, onMarkSent }: ResultViewProps) => {
       </button>
 
       {showOriginal && (
-        <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4 fade-in-up">
+        <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4">
           <div className="space-y-2 text-[11px]">
             <div className="flex gap-2"><span className="text-[hsl(var(--muted-foreground))] w-14">From:</span><span className="text-[hsl(var(--foreground))] mono">{result.from}</span></div>
             <div className="flex gap-2"><span className="text-[hsl(var(--muted-foreground))] w-14">Subject:</span><span className="text-[hsl(var(--foreground))]">{result.subject}</span></div>

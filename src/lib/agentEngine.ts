@@ -1,12 +1,6 @@
-import { createClient } from '@supabase/supabase-js';
 import { CAMPUSES } from "@/constants/umuData";
+import { supabase } from "@/lib/supabase";
 import type { CategoryId, EmailInput, ProcessingStep, RoutingResult } from "@/types";
-
-// ── Supabase client (for invoking edge functions) ─────────────────────────────
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
-);
 
 // ── Fallback: rule-based classification ──────────────────────────────────────
 
