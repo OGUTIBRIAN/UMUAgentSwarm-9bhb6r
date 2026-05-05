@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import {
   CheckCircle, Copy, RotateCcw, Building2, Tag, Cpu,
-  Mail, Clock, ChevronDown, ChevronUp, Percent, Send, AtSign, Loader2,
+  Mail, Clock, ChevronDown, ChevronUp, Percent, Send, AtSign, Loader2, AlertTriangle,
 } from "lucide-react";
-import { CAMPUSES, buildMailtoLink } from "@/constants/umuData";
+import { CAMPUSES, buildMailtoLink, UMU_ESCALATION_CONTACTS } from "@/constants/umuData";
 import { formatDateTime } from "@/lib/utils";
 import type { RoutingResult } from "@/types";
 import { toast } from "sonner";
@@ -68,6 +68,12 @@ const ResultView = ({ result, onReset, onMarkSent }: ResultViewProps) => {
   const campus = CAMPUSES.find((c) => c.id === result.campusId) ?? CAMPUSES[0];
   const catColor = CATEGORY_COLORS[result.category] || "#F5A623";
   const isSent = result.status === "sent";
+  const isEscalated = result.escalated === true;
+
+  // Build CC summary — escalated emails include Dean + VC
+  const ccSummary = isEscalated
+    ? `${campus.ccEmail}, ${UMU_ESCALATION_CONTACTS.deanOfStudies}, ${UMU_ESCALATION_CONTACTS.vc}`
+    : campus.ccEmail;
 
   const { displayed: typedReply, isDone: typingDone } = useTypingEffect(result.draftReply, 12);
 
@@ -82,6 +88,10 @@ const ResultView = ({ result, onReset, onMarkSent }: ResultViewProps) => {
     if (isSent || sending) return;
     setSending(true);
 
+    const escalationContacts = isEscalated
+      ? [UMU_ESCALATION_CONTACTS.deanOfStudies, UMU_ESCALATION_CONTACTS.vc]
+      : undefined;
+
     const { data, error } = await supabase.functions.invoke('send-email', {
       body: {
         to: result.from,
@@ -90,6 +100,8 @@ const ResultView = ({ result, onReset, onMarkSent }: ResultViewProps) => {
         cc: campus.ccEmail,
         fromName: `${result.agentName} — Uganda Martyrs University`,
         replyTo: campus.email,
+        escalated: isEscalated,
+        escalationContacts,
       },
     });
 
@@ -102,10 +114,9 @@ const ResultView = ({ result, onReset, onMarkSent }: ResultViewProps) => {
         } catch { /* ignore */ }
       }
 
-      // Check if it's a missing API key error — fall back to mailto:
       if (errorMessage.includes('RESEND_API_KEY') || errorMessage.includes('not configured')) {
         toast.info('Email service not yet configured — opening your email client instead');
-        const url = buildMailtoLink({ to: result.from, subject: result.subject, body: result.draftReply, cc: campus.ccEmail });
+        const url = buildMailtoLink({ to: result.from, subject: result.subject, body: result.draftReply, cc: ccSummary });
         window.open(url, '_self');
         if (onMarkSent) onMarkSent(result.emailId);
       } else {
@@ -117,12 +128,29 @@ const ResultView = ({ result, onReset, onMarkSent }: ResultViewProps) => {
 
     setSending(false);
     if (onMarkSent) onMarkSent(result.emailId);
-    toast.success(`Email sent to ${result.from} — CC'd ${campus.ccEmail}`);
+    const sentMsg = isEscalated
+      ? `Email sent — CC'd ${campus.ccEmail}, Dean of Studies & Vice Chancellor`
+      : `Email sent to ${result.from} — CC'd ${campus.ccEmail}`;
+    toast.success(sentMsg);
     console.log('[send-email] Message ID:', data?.messageId);
   };
 
   return (
     <div className="space-y-3 fade-in-up">
+      {/* Escalation banner */}
+      {isEscalated && (
+        <div className="flex items-start gap-2.5 px-4 py-3 bg-[#E67E2210] border border-[#E67E2240] rounded-xl">
+          <AlertTriangle className="w-4 h-4 text-[#E67E22] flex-shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-bold text-[#E67E22] mb-0.5">Escalation Flag Active</div>
+            <div className="text-[11px] text-[hsl(var(--muted-foreground))]">{result.escalationReason}</div>
+            <div className="text-[11px] text-[hsl(var(--muted-foreground))] mt-1">
+              Dean of Studies &amp; Vice Chancellor will be CC'd when you send this reply.
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Routing summary */}
       <div className="bg-[hsl(var(--card))] border rounded-xl p-4" style={{ borderColor: `${campus.color}40` }}>
         <div className="flex items-center gap-2 mb-3">
@@ -188,6 +216,11 @@ const ResultView = ({ result, onReset, onMarkSent }: ResultViewProps) => {
                 AI writing…
               </span>
             )}
+            {typingDone && isEscalated && (
+              <span className="flex items-center gap-1 text-[10px] font-bold text-[#E67E22] px-1.5 py-0.5 rounded bg-[#E67E2218]">
+                <AlertTriangle className="w-3 h-3" /> Escalated
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -204,6 +237,8 @@ const ResultView = ({ result, onReset, onMarkSent }: ResultViewProps) => {
               className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md border font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-colors ${
                 isSent
                   ? "bg-[hsl(142,72%,45%,0.15)] border-[hsl(142,72%,45%,0.4)] text-[hsl(142,72%,45%)] cursor-default"
+                  : isEscalated
+                  ? "bg-[#E67E2218] border-[#E67E2240] text-[#E67E22] hover:bg-[#E67E2230]"
                   : "bg-[hsl(var(--primary)/0.15)] border-[hsl(var(--primary)/0.4)] text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/0.25)]"
               }`}
             >
@@ -212,7 +247,7 @@ const ResultView = ({ result, onReset, onMarkSent }: ResultViewProps) => {
               ) : isSent ? (
                 <><CheckCircle className="w-3 h-3" />Sent</>
               ) : (
-                <><Send className="w-3 h-3" />Send Reply</>
+                <><Send className="w-3 h-3" />Send{isEscalated ? " + Escalate" : " Reply"}</>
               )}
             </button>
           </div>
@@ -230,7 +265,7 @@ const ResultView = ({ result, onReset, onMarkSent }: ResultViewProps) => {
 
         {/* CC info */}
         {typingDone && (
-          <div className="border-t border-[hsl(var(--border))] px-4 py-2 bg-[hsl(var(--secondary)/0.3)]">
+          <div className={`border-t px-4 py-2 ${isEscalated ? "border-[#E67E2240] bg-[#E67E2208]" : "border-[hsl(var(--border))] bg-[hsl(var(--secondary)/0.3)]"}`}>
             <button
               onClick={() => setShowCCInfo(!showCCInfo)}
               className="flex items-center gap-2 text-[10px] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors w-full"
@@ -238,19 +273,21 @@ const ResultView = ({ result, onReset, onMarkSent }: ResultViewProps) => {
               <AtSign className="w-3 h-3 flex-shrink-0" />
               <span>
                 {isSent
-                  ? <>Email sent ✓ — CC'd <strong className="text-[hsl(var(--foreground))]">{campus.ccEmail}</strong></>
-                  : <>Sending will CC <strong className="text-[hsl(var(--foreground))]">{campus.ccEmail}</strong> ({campus.name})</>}
+                  ? <>Email sent ✓ — CC'd <strong className="text-[hsl(var(--foreground))]">{ccSummary}</strong></>
+                  : <>Sending will CC <strong className={isEscalated ? "text-[#E67E22]" : "text-[hsl(var(--foreground))]"}>{ccSummary}</strong></>}
               </span>
               {showCCInfo ? <ChevronUp className="w-3 h-3 ml-auto" /> : <ChevronDown className="w-3 h-3 ml-auto" />}
             </button>
             {showCCInfo && (
               <div className="mt-2 p-2.5 rounded-lg bg-[hsl(var(--background))] border border-[hsl(var(--border))] space-y-1.5 text-[10px] text-[hsl(var(--muted-foreground))]">
                 <div className="flex gap-2"><span className="w-14 font-semibold text-[hsl(var(--foreground))]">To:</span><span className="mono">{result.from}</span></div>
-                <div className="flex gap-2"><span className="w-14 font-semibold text-[hsl(var(--foreground))]">CC:</span><span className="mono">{campus.ccEmail}</span></div>
+                <div className="flex gap-2"><span className="w-14 font-semibold text-[hsl(var(--foreground))]">CC:</span><span className="mono">{ccSummary}</span></div>
                 <div className="flex gap-2"><span className="w-14 font-semibold text-[hsl(var(--foreground))]">Subject:</span><span>Re: {result.subject}</span></div>
-                <div className="mt-2 pt-2 border-t border-[hsl(var(--border))]">
-                  Sent via Resend email service. To add Dean/VC CC, configure <span className="mono">DEAN_EMAIL</span> in OnSpace Cloud Secrets.
-                </div>
+                {isEscalated && (
+                  <div className="mt-2 pt-2 border-t border-[#E67E2240] text-[#E67E22] font-medium">
+                    ⚠ Escalated — Dean of Studies and Vice Chancellor automatically included in CC.
+                  </div>
+                )}
               </div>
             )}
           </div>

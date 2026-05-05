@@ -1,6 +1,21 @@
-import { CAMPUSES } from "@/constants/umuData";
+import { CAMPUSES, ESCALATION_CONFIDENCE_THRESHOLD, ESCALATION_CATEGORIES } from "@/constants/umuData";
 import { supabase } from "@/lib/supabase";
 import type { CategoryId, EmailInput, ProcessingStep, RoutingResult } from "@/types";
+
+// ── Escalation helpers ────────────────────────────────────────────────────────
+
+function shouldEscalate(category: CategoryId, confidence: number): boolean {
+  return confidence < ESCALATION_CONFIDENCE_THRESHOLD || ESCALATION_CATEGORIES.includes(category);
+}
+
+function buildEscalationReason(category: CategoryId, confidence: number): string {
+  const reasons: string[] = [];
+  if (confidence < ESCALATION_CONFIDENCE_THRESHOLD)
+    reasons.push(`Low confidence (${confidence}% < ${ESCALATION_CONFIDENCE_THRESHOLD}%)`);
+  if (ESCALATION_CATEGORIES.includes(category))
+    reasons.push("Administrative category requires senior review");
+  return reasons.join(" · ");
+}
 
 // ── Fallback: rule-based classification ──────────────────────────────────────
 
@@ -94,6 +109,7 @@ function buildFallbackResult(email: EmailInput): Omit<RoutingResult, "processing
     medical: "Medical / Health Sciences",
     engineering: "Engineering Programme",
   };
+  const escalated = shouldEscalate(category, confidence);
   return {
     emailId: `EMX-${Date.now()}`,
     from: email.from,
@@ -111,6 +127,8 @@ function buildFallbackResult(email: EmailInput): Omit<RoutingResult, "processing
     draftReply: generateFallbackReply(email, campusId, category, faculty),
     processedAt: new Date().toISOString(),
     status: "draft",
+    escalated,
+    escalationReason: escalated ? buildEscalationReason(category, confidence) : undefined,
   };
 }
 
@@ -161,8 +179,10 @@ export async function processEmail(email: EmailInput): Promise<Omit<RoutingResul
     const campusId: string = ai.campusId || 'nkozi';
     const campus = CAMPUSES.find((c) => c.id === campusId) ?? CAMPUSES[0];
     const category = (ai.category as CategoryId) || 'academic';
+    const confidence = typeof ai.confidence === 'number' ? Math.min(98, Math.max(40, ai.confidence)) : 75;
+    const escalated = shouldEscalate(category, confidence);
 
-    console.log(`[AgentEngine] AI routed to: ${campus.agentName} | category: ${category} | confidence: ${ai.confidence}`);
+    console.log(`[AgentEngine] AI routed to: ${campus.agentName} | category: ${category} | confidence: ${confidence} | escalated: ${escalated}`);
 
     return {
       emailId: `EMX-${Date.now()}`,
@@ -172,7 +192,7 @@ export async function processEmail(email: EmailInput): Promise<Omit<RoutingResul
       receivedAt: email.receivedAt,
       category,
       categoryLabel: ai.categoryLabel || categoryLabels[category] || category,
-      confidence: typeof ai.confidence === 'number' ? Math.min(98, Math.max(40, ai.confidence)) : 75,
+      confidence,
       campusId,
       campusName: ai.campusName || campus.name,
       agentName: ai.agentName || campus.agentName,
@@ -181,6 +201,8 @@ export async function processEmail(email: EmailInput): Promise<Omit<RoutingResul
       draftReply: ai.draftReply || generateFallbackReply(email, campusId, category, ai.faculty || 'Office of the Registrar'),
       processedAt: new Date().toISOString(),
       status: 'draft',
+      escalated,
+      escalationReason: escalated ? buildEscalationReason(category, confidence) : undefined,
     };
 
   } catch (err) {
@@ -189,13 +211,13 @@ export async function processEmail(email: EmailInput): Promise<Omit<RoutingResul
   }
 }
 
-// ── Processing steps (unchanged) ─────────────────────────────────────────────
+// ── Processing steps ──────────────────────────────────────────────────────────
 
 export function buildProcessingSteps(campusName: string, agentName: string, category: string): ProcessingStep[] {
   return [
     { label: "Email received", detail: "Intake Agent captured incoming message", doneAt: 400 },
     { label: "Content parsing", detail: "Extracting subject, body, sender metadata", doneAt: 900 },
-    { label: "AI classification", detail: `Gemini 3 Flash analysing intent & context`, doneAt: 1800 },
+    { label: "AI classification", detail: "Gemini 3 Flash analysing intent & context", doneAt: 1800 },
     { label: "Campus routing", detail: `Matched to ${campusName}`, doneAt: 2600 },
     { label: "Agent assignment", detail: `Handing off to ${agentName}`, doneAt: 3200 },
     { label: "Knowledge base query", detail: "AI querying UMU programme & contact data", doneAt: 4200 },

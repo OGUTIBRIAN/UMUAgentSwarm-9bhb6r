@@ -13,7 +13,7 @@ serve(async (req) => {
       throw new Error('RESEND_API_KEY not configured. Please add it in OnSpace Cloud → Secrets.');
     }
 
-    const { to, subject, body, cc, replyTo, fromName } = await req.json();
+    const { to, subject, body, cc, bcc, replyTo, fromName, escalated, escalationContacts } = await req.json();
 
     if (!to || !subject || !body) {
       return new Response(
@@ -60,7 +60,15 @@ serve(async (req) => {
       text: body,
     };
 
-    if (cc) emailPayload.cc = Array.isArray(cc) ? cc : [cc];
+    // Build CC list: campus coordinator + escalation contacts if flagged
+    const ccList: string[] = [];
+    if (cc) { if (Array.isArray(cc)) ccList.push(...cc); else ccList.push(cc); }
+    if (escalated && escalationContacts) {
+      const extras = Array.isArray(escalationContacts) ? escalationContacts : [escalationContacts];
+      extras.forEach((e: string) => { if (!ccList.includes(e)) ccList.push(e); });
+      console.log(`[send-email] Escalated email — adding ${extras.length} escalation CC(s)`);
+    }
+    if (ccList.length > 0) emailPayload.cc = ccList;
     if (replyTo) emailPayload.reply_to = replyTo;
 
     console.log(`[send-email] Sending to: ${to}, CC: ${cc || 'none'}, Subject: ${subject}`);

@@ -1,5 +1,6 @@
-import { Activity, Cpu, LogOut, Building2, User } from "lucide-react";
+import { Activity, Cpu, LogOut, Building2, User, ShieldCheck } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { useNavigate } from "react-router-dom";
 import { CAMPUSES } from "@/constants/umuData";
 import { toast } from "sonner";
 
@@ -10,6 +11,7 @@ interface HeaderProps {
 
 const Header = ({ activeEmails, totalProcessed }: HeaderProps) => {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const now = new Date();
   const timeStr = now.toLocaleTimeString("en-UG", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const campus = user?.campusId ? CAMPUSES.find((c) => c.id === user.campusId) : null;
@@ -83,6 +85,17 @@ const Header = ({ activeEmails, totalProcessed }: HeaderProps) => {
               <User className="w-3 h-3 text-[hsl(var(--muted-foreground))]" />
               <span className="font-medium">{user.username}</span>
             </div>
+            {/* Admin button */}
+            {user?.role === "admin" && (
+              <button
+                onClick={() => navigate("/admin")}
+                className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-[hsl(var(--primary)/0.1)] hover:bg-[hsl(var(--primary)/0.2)] border border-[hsl(var(--primary)/0.3)] text-[hsl(var(--primary))] transition-colors"
+                title="Admin Dashboard"
+              >
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline text-[10px] font-semibold">Admin</span>
+              </button>
+            )}
             {/* Logout */}
             <button
               onClick={handleLogout}

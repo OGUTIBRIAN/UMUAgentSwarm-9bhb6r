@@ -31,6 +31,8 @@ export interface RoutingResult {
   processedAt: string;
   processingSteps: ProcessingStep[];
   status: "draft" | "sent";
+  escalated?: boolean;
+  escalationReason?: string;
 }
 
 export interface ProcessingStep {

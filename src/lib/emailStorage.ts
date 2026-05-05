@@ -18,6 +18,8 @@ export async function saveEmailLog(result: RoutingResult): Promise<void> {
     reasoning: result.reasoning,
     draft_reply: result.draftReply,
     status: result.status ?? 'draft',
+    escalated: result.escalated ?? false,
+    escalation_reason: result.escalationReason ?? null,
     received_at: result.receivedAt,
     processed_at: result.processedAt,
   }, { onConflict: 'email_id' });
@@ -54,6 +56,8 @@ export async function loadEmailLogs(): Promise<RoutingResult[]> {
     reasoning: row.reasoning,
     draftReply: row.draft_reply,
     status: row.status as 'draft' | 'sent',
+    escalated: row.escalated ?? false,
+    escalationReason: row.escalation_reason ?? undefined,
     receivedAt: row.received_at,
     processedAt: row.processed_at,
     processingSteps: [],

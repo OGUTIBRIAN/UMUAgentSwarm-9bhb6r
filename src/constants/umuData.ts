@@ -134,6 +134,17 @@ export const CAMPUSES = [
   },
 ];
 
+// Escalation thresholds
+export const ESCALATION_CONFIDENCE_THRESHOLD = 70;
+export const ESCALATION_CATEGORIES = ["administrative"];
+
+// Dean / VC escalation contacts
+export const UMU_ESCALATION_CONTACTS = {
+  deanOfStudies: "deanofstudies@umu.ac.ug",
+  vc: "vc@umu.ac.ug",
+  registrar: "registrar@umu.ac.ug",
+};
+
 // UMU Key Staff Contacts (for CC/BCC in email routing)
 export const UMU_KEY_CONTACTS = {
   registrar: "registrar@umu.ac.ug",
